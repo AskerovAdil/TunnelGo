@@ -30,6 +30,21 @@ type Config struct {
 	SessionSecret  string
 	SessionTTL     time.Duration
 	SecureCookies  bool
+
+	SSEnabled  bool
+	SSHost     string
+	SSMethod   string
+	SSPortMin  int
+	SSPortMax  int
+
+	VLESSEnabled     bool
+	VLESSHost        string
+	VLESSPort        int
+	VLESSBinary      string
+	VLESSConfigPath  string
+	VLESSKeysPath    string
+	VLESSDest        string
+	VLESSServerNames string
 }
 
 func Load(args []string) (*Config, error) {
@@ -52,6 +67,19 @@ func Load(args []string) (*Config, error) {
 		sessSecret    = fs.String("session-secret", envOr("SESSION_SECRET", ""), "session signing secret")
 		sessTTL       = fs.Duration("session-ttl", durationEnvOr("SESSION_TTL", 24*time.Hour), "session lifetime")
 		secureCookies = fs.Bool("secure-cookies", boolEnvOr("SECURE_COOKIES", false), "set Secure flag on session cookies")
+		ssEnabled     = fs.Bool("ss-enabled", boolEnvOr("SS_ENABLED", true), "enable embedded Shadowsocks server")
+		ssHost        = fs.String("ss-host", envOr("SS_HOST", ""), "Shadowsocks server host for ss:// links")
+		ssMethod      = fs.String("ss-method", envOr("SS_METHOD", "AEAD_AES_256_GCM"), "Shadowsocks cipher")
+		ssPortMin     = fs.Int("ss-port-min", intEnvOr("SS_PORT_MIN", 8388), "first Shadowsocks port for clients")
+		ssPortMax     = fs.Int("ss-port-max", intEnvOr("SS_PORT_MAX", 8487), "last Shadowsocks port for clients")
+		vlessEnabled  = fs.Bool("vless-enabled", boolEnvOr("VLESS_ENABLED", false), "enable VLESS Reality via xray")
+		vlessHost     = fs.String("vless-host", envOr("VLESS_HOST", ""), "public host/IP for vless:// links")
+		vlessPort     = fs.Int("vless-port", intEnvOr("VLESS_PORT", 443), "VLESS Reality listen port")
+		vlessBinary   = fs.String("vless-binary", envOr("VLESS_BINARY", "xray"), "path to xray binary")
+		vlessConfig   = fs.String("vless-config", envOr("VLESS_CONFIG", "/var/lib/tunnelgo/xray/config.json"), "xray config path")
+		vlessKeys     = fs.String("vless-keys", envOr("VLESS_KEYS", "/var/lib/tunnelgo/xray/reality.json"), "Reality keys path")
+		vlessDest     = fs.String("vless-dest", envOr("VLESS_DEST", "www.cloudflare.com:443"), "Reality dest host:port")
+		vlessSNI      = fs.String("vless-server-names", envOr("VLESS_SERVER_NAMES", "www.cloudflare.com"), "comma-separated Reality serverNames/SNI")
 	)
 
 	if err := fs.Parse(args); err != nil {
@@ -83,6 +111,19 @@ func Load(args []string) (*Config, error) {
 		SessionSecret:   *sessSecret,
 		SessionTTL:      *sessTTL,
 		SecureCookies:   *secureCookies,
+		SSEnabled:       *ssEnabled,
+		SSHost:          *ssHost,
+		SSMethod:        *ssMethod,
+		SSPortMin:        *ssPortMin,
+		SSPortMax:        *ssPortMax,
+		VLESSEnabled:     *vlessEnabled,
+		VLESSHost:        *vlessHost,
+		VLESSPort:        *vlessPort,
+		VLESSBinary:      *vlessBinary,
+		VLESSConfigPath:  *vlessConfig,
+		VLESSKeysPath:    *vlessKeys,
+		VLESSDest:        *vlessDest,
+		VLESSServerNames: *vlessSNI,
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -110,6 +151,31 @@ func (c *Config) validate() error {
 	}
 	if len(c.SessionSecret) < 32 {
 		return errors.New("session-secret must be at least 32 characters")
+	}
+	if c.SSEnabled {
+		if c.SSHost == "" {
+			return errors.New("ss-host is required when ss-enabled is true")
+		}
+		if c.SSPortMin <= 0 || c.SSPortMax <= 0 || c.SSPortMin > c.SSPortMax {
+			return errors.New("ss-port-min must be <= ss-port-max and both must be positive")
+		}
+	}
+	if c.VLESSEnabled {
+		if c.VLESSHost == "" {
+			return errors.New("vless-host is required when vless-enabled is true")
+		}
+		if c.VLESSPort <= 0 || c.VLESSPort > 65535 {
+			return errors.New("vless-port must be between 1 and 65535")
+		}
+		if c.VLESSBinary == "" {
+			return errors.New("vless-binary must not be empty")
+		}
+		if c.VLESSConfigPath == "" {
+			return errors.New("vless-config must not be empty")
+		}
+		if c.VLESSKeysPath == "" {
+			return errors.New("vless-keys must not be empty")
+		}
 	}
 	return nil
 }

@@ -5,6 +5,7 @@ go 1.26.4
 require (
 	github.com/google/uuid v1.6.0
 	github.com/labstack/echo/v4 v4.15.4
+	github.com/shadowsocks/go-shadowsocks2 v0.1.5
 	golang.org/x/crypto v0.53.0
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10
 	modernc.org/sqlite v1.53.0
@@ -22,6 +23,7 @@ require (
 	github.com/mdlayher/socket v0.5.1 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
+	github.com/riobard/go-bloom v0.0.0-20200614022211-cdc8013cb5b3 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	golang.org/x/net v0.56.0 // indirect

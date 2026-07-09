@@ -12,6 +12,8 @@ type Repository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*Client, error)
 	GetByPublicKey(ctx context.Context, publicKey string) (*Client, error)
 	List(ctx context.Context, includeRevoked bool) ([]*Client, error)
+	UpdateShadowsocks(ctx context.Context, id uuid.UUID, password string, port int) error
+	UpdateVLESS(ctx context.Context, id uuid.UUID, vlessUUID string) error
 	Revoke(ctx context.Context, id uuid.UUID, revokedAt time.Time) error
 	Delete(ctx context.Context, id uuid.UUID) error
 }

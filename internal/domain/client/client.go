@@ -23,6 +23,9 @@ type Client struct {
 	PrivateKey string
 	PublicKey  string
 	Address    string
+	SSPassword string
+	SSPort     int
+	VLESSUUID  string
 	CreatedAt  time.Time
 	RevokedAt  *time.Time
 }

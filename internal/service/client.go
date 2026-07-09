@@ -9,18 +9,28 @@ import (
 	"github.com/google/uuid"
 	"github.com/tunnelgo/tunnelgo/internal/domain"
 	"github.com/tunnelgo/tunnelgo/internal/domain/client"
+	"github.com/tunnelgo/tunnelgo/internal/shadowsocks"
 	"github.com/tunnelgo/tunnelgo/internal/wireguard"
+	"github.com/tunnelgo/tunnelgo/internal/xray"
 )
 
 type ClientService struct {
-	repo client.Repository
-	wg   *wireguard.Manager
+	repo      client.Repository
+	wg        *wireguard.Manager
+	ss        *shadowsocks.Manager
+	xray      *xray.Manager
+	ssPortMin int
+	ssPortMax int
 }
 
-func NewClientService(repo client.Repository, wg *wireguard.Manager) *ClientService {
+func NewClientService(repo client.Repository, wg *wireguard.Manager, ss *shadowsocks.Manager, xr *xray.Manager, ssPortMin, ssPortMax int) *ClientService {
 	return &ClientService{
-		repo: repo,
-		wg:   wg,
+		repo:      repo,
+		wg:        wg,
+		ss:        ss,
+		xray:      xr,
+		ssPortMin: ssPortMin,
+		ssPortMax: ssPortMax,
 	}
 }
 
@@ -33,8 +43,87 @@ type ClientView struct {
 }
 
 type CreateResult struct {
-	Client *client.Client
-	Config string
+	Client    *client.Client
+	Config    string
+	SSLink    string
+	VLESSLink string
+}
+
+func (s *ClientService) SyncShadowsocks(ctx context.Context) error {
+	if s.ss == nil || !s.ss.Enabled() {
+		return nil
+	}
+
+	clients, err := s.repo.List(ctx, false)
+	if err != nil {
+		return err
+	}
+
+	for _, c := range clients {
+		if c.SSPassword != "" && c.SSPort > 0 {
+			continue
+		}
+		if err := s.ensureShadowsocks(ctx, c); err != nil {
+			return err
+		}
+	}
+
+	clients, err = s.repo.List(ctx, false)
+	if err != nil {
+		return err
+	}
+
+	users := make([]shadowsocks.User, 0, len(clients))
+	for _, c := range clients {
+		if c.SSPassword == "" || c.SSPort <= 0 {
+			continue
+		}
+		users = append(users, shadowsocks.User{
+			Port:     c.SSPort,
+			Password: c.SSPassword,
+		})
+	}
+
+	return s.ss.ApplyUsers(ctx, users)
+}
+
+func (s *ClientService) SyncVLESS(ctx context.Context) error {
+	if s.xray == nil || !s.xray.Enabled() {
+		return nil
+	}
+
+	clients, err := s.repo.List(ctx, false)
+	if err != nil {
+		return err
+	}
+
+	for _, c := range clients {
+		if c.VLESSUUID != "" {
+			continue
+		}
+		if err := s.ensureVLESS(ctx, c); err != nil {
+			return err
+		}
+	}
+
+	clients, err = s.repo.List(ctx, false)
+	if err != nil {
+		return err
+	}
+
+	users := make([]xray.User, 0, len(clients))
+	for _, c := range clients {
+		if c.VLESSUUID == "" {
+			continue
+		}
+		users = append(users, xray.User{
+			ID:    c.VLESSUUID,
+			Flow:  "xtls-rprx-vision",
+			Email: c.Name,
+		})
+	}
+
+	return s.xray.ApplyUsers(ctx, users)
 }
 
 func (s *ClientService) Create(ctx context.Context, name string) (*CreateResult, error) {
@@ -52,6 +141,16 @@ func (s *ClientService) Create(ctx context.Context, name string) (*CreateResult,
 		return nil, err
 	}
 
+	ssPassword, ssPort, err := s.allocateShadowsocks(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	vlessUUID := ""
+	if s.xray != nil && s.xray.Enabled() {
+		vlessUUID = uuid.New().String()
+	}
+
 	now := time.Now().UTC()
 	c := &client.Client{
 		ID:         uuid.New(),
@@ -59,6 +158,9 @@ func (s *ClientService) Create(ctx context.Context, name string) (*CreateResult,
 		PrivateKey: privateKey,
 		PublicKey:  publicKey,
 		Address:    address,
+		SSPassword: ssPassword,
+		SSPort:     ssPort,
+		VLESSUUID:  vlessUUID,
 		CreatedAt:  now,
 	}
 
@@ -69,6 +171,19 @@ func (s *ClientService) Create(ctx context.Context, name string) (*CreateResult,
 	if err := s.syncPeers(ctx); err != nil {
 		_ = s.repo.Delete(ctx, c.ID)
 		return nil, fmt.Errorf("sync wireguard: %w", err)
+	}
+
+	if err := s.SyncShadowsocks(ctx); err != nil {
+		_ = s.repo.Delete(ctx, c.ID)
+		_ = s.syncPeers(ctx)
+		return nil, fmt.Errorf("sync shadowsocks: %w", err)
+	}
+
+	if err := s.SyncVLESS(ctx); err != nil {
+		_ = s.repo.Delete(ctx, c.ID)
+		_ = s.syncPeers(ctx)
+		_ = s.SyncShadowsocks(ctx)
+		return nil, fmt.Errorf("sync vless: %w", err)
 	}
 
 	serverCfg, err := s.wg.ServerConfig()
@@ -82,8 +197,10 @@ func (s *ClientService) Create(ctx context.Context, name string) (*CreateResult,
 	}
 
 	return &CreateResult{
-		Client: c,
-		Config: configText,
+		Client:    c,
+		Config:    configText,
+		SSLink:    s.SSLink(c),
+		VLESSLink: s.VLESSLink(c),
 	}, nil
 }
 
@@ -91,7 +208,13 @@ func (s *ClientService) Revoke(ctx context.Context, id uuid.UUID) error {
 	if err := s.repo.Revoke(ctx, id, time.Now().UTC()); err != nil {
 		return err
 	}
-	return s.syncPeers(ctx)
+	if err := s.syncPeers(ctx); err != nil {
+		return err
+	}
+	if err := s.SyncShadowsocks(ctx); err != nil {
+		return err
+	}
+	return s.SyncVLESS(ctx)
 }
 
 func (s *ClientService) List(ctx context.Context) ([]*ClientView, error) {
@@ -150,6 +273,64 @@ func (s *ClientService) ClientConfig(ctx context.Context, id uuid.UUID) (string,
 	return s.wg.RenderClientConfig(c.PrivateKey, c.Address, serverCfg.Interface.PrivateKey)
 }
 
+func (s *ClientService) SSLink(c *client.Client) string {
+	if s.ss == nil || !s.ss.Enabled() || c.SSPassword == "" || c.SSPort <= 0 {
+		return ""
+	}
+	return s.ss.RenderLink(c.SSPassword, c.SSPort, c.Name)
+}
+
+func (s *ClientService) VLESSLink(c *client.Client) string {
+	if s.xray == nil || !s.xray.Enabled() || c.VLESSUUID == "" {
+		return ""
+	}
+	return s.xray.RenderLink(c.VLESSUUID, c.Name)
+}
+
+func (s *ClientService) SSLinkForClient(ctx context.Context, id uuid.UUID) (string, error) {
+	c, err := s.Get(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	if err := s.ensureShadowsocks(ctx, c); err != nil {
+		return "", err
+	}
+	if err := s.SyncShadowsocks(ctx); err != nil {
+		return "", err
+	}
+	c, err = s.Get(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	link := s.SSLink(c)
+	if link == "" {
+		return "", fmt.Errorf("%w: shadowsocks is disabled", domain.ErrInvalidInput)
+	}
+	return link, nil
+}
+
+func (s *ClientService) VLESSLinkForClient(ctx context.Context, id uuid.UUID) (string, error) {
+	c, err := s.Get(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	if err := s.ensureVLESS(ctx, c); err != nil {
+		return "", err
+	}
+	if err := s.SyncVLESS(ctx); err != nil {
+		return "", err
+	}
+	c, err = s.Get(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	link := s.VLESSLink(c)
+	if link == "" {
+		return "", fmt.Errorf("%w: vless is disabled", domain.ErrInvalidInput)
+	}
+	return link, nil
+}
+
 func (s *ClientService) allocateAddress(ctx context.Context) (string, error) {
 	serverCfg, err := s.wg.ServerConfig()
 	if err != nil {
@@ -178,6 +359,65 @@ func (s *ClientService) allocateAddress(ctx context.Context) (string, error) {
 	}
 
 	return address, nil
+}
+
+func (s *ClientService) allocateShadowsocks(ctx context.Context) (string, int, error) {
+	if s.ss == nil || !s.ss.Enabled() {
+		return "", 0, nil
+	}
+
+	password, err := shadowsocks.GeneratePassword()
+	if err != nil {
+		return "", 0, err
+	}
+
+	clients, err := s.repo.List(ctx, false)
+	if err != nil {
+		return "", 0, err
+	}
+
+	used := make([]int, 0, len(clients))
+	for _, c := range clients {
+		if c.SSPort > 0 {
+			used = append(used, c.SSPort)
+		}
+	}
+
+	port, err := nextSSPort(collectUsedSSPorts(used), s.ssPortMin, s.ssPortMax)
+	if err != nil {
+		if errors.Is(err, domain.ErrConflict) {
+			return "", 0, fmt.Errorf("%w: no free shadowsocks ports", domain.ErrConflict)
+		}
+		return "", 0, err
+	}
+
+	return password, port, nil
+}
+
+func (s *ClientService) ensureShadowsocks(ctx context.Context, c *client.Client) error {
+	if s.ss == nil || !s.ss.Enabled() {
+		return nil
+	}
+	if c.SSPassword != "" && c.SSPort > 0 {
+		return nil
+	}
+
+	password, port, err := s.allocateShadowsocks(ctx)
+	if err != nil {
+		return err
+	}
+
+	return s.repo.UpdateShadowsocks(ctx, c.ID, password, port)
+}
+
+func (s *ClientService) ensureVLESS(ctx context.Context, c *client.Client) error {
+	if s.xray == nil || !s.xray.Enabled() {
+		return nil
+	}
+	if c.VLESSUUID != "" {
+		return nil
+	}
+	return s.repo.UpdateVLESS(ctx, c.ID, uuid.New().String())
 }
 
 func (s *ClientService) syncPeers(ctx context.Context) error {

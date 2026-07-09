@@ -3,10 +3,25 @@
 <div class="error">{{.Result.Error}}</div>
 {{else}}
 <div class="success">Client <strong>{{.Result.Name}}</strong> created.</div>
+<p class="muted">WireGuard config</p>
 <textarea readonly>{{.Result.Config}}</textarea>
 <div class="actions">
     <a class="btn" href="/clients/{{.Result.ID}}/config">Download .conf</a>
 </div>
+{{if .Result.VLESSLink}}
+<p class="muted" style="margin-top:1rem">Hiddify / VLESS Reality</p>
+<textarea readonly>{{.Result.VLESSLink}}</textarea>
+<div class="actions">
+    <a class="btn secondary" href="/clients/{{.Result.ID}}/vless">Download vless:// link</a>
+</div>
+{{end}}
+{{if .Result.SSLink}}
+<p class="muted" style="margin-top:1rem">Shadowsocks (optional)</p>
+<textarea readonly>{{.Result.SSLink}}</textarea>
+<div class="actions">
+    <a class="btn secondary" href="/clients/{{.Result.ID}}/ss">Download ss:// link</a>
+</div>
+{{end}}
 {{end}}
 {{if .List.Clients}}
 <div id="client-list" hx-swap-oob="innerHTML">

@@ -133,6 +133,8 @@ func (s *Server) registerRoutes() {
 	protected.POST("/clients", s.client.Create)
 	protected.DELETE("/clients/:id", s.client.Revoke)
 	protected.GET("/clients/:id/config", s.client.DownloadConfig)
+	protected.GET("/clients/:id/ss", s.client.DownloadSSLink)
+	protected.GET("/clients/:id/vless", s.client.DownloadVLESSLink)
 }
 
 func (s *Server) handleHealthz(c echo.Context) error {

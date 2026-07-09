@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/tunnelgo/tunnelgo/internal/domain"
+	"github.com/tunnelgo/tunnelgo/internal/domain/client"
 	"github.com/tunnelgo/tunnelgo/internal/service"
 )
 
@@ -19,6 +20,8 @@ type ClientRow struct {
 	LastHandshake string
 	ReceiveBytes  string
 	TransmitBytes string
+	SSLink        string
+	VLESSLink     string
 }
 
 type DashboardData struct {
@@ -26,10 +29,17 @@ type DashboardData struct {
 }
 
 type CreateResultData struct {
-	Error  string
-	Name   string
-	ID     string
-	Config string
+	Error     string
+	Name      string
+	ID        string
+	Config    string
+	SSLink    string
+	VLESSLink string
+}
+
+type LinkFns struct {
+	SS    func(*client.Client) string
+	VLESS func(*client.Client) string
 }
 
 func ClientRowsFromViews(views []*service.ClientView) []ClientRow {
@@ -57,14 +67,29 @@ func ClientRowsFromViews(views []*service.ClientView) []ClientRow {
 	return rows
 }
 
+func ClientRowsFromViewsWithLinks(views []*service.ClientView, links LinkFns) []ClientRow {
+	rows := ClientRowsFromViews(views)
+	for i, v := range views {
+		if links.SS != nil {
+			rows[i].SSLink = links.SS(v.Client)
+		}
+		if links.VLESS != nil {
+			rows[i].VLESSLink = links.VLESS(v.Client)
+		}
+	}
+	return rows
+}
+
 func CreateResultFromService(res *service.CreateResult, err error) CreateResultData {
 	if err != nil {
 		return CreateResultData{Error: UserMessage(err)}
 	}
 	return CreateResultData{
-		Name:   res.Client.Name,
-		ID:     res.Client.ID.String(),
-		Config: res.Config,
+		Name:      res.Client.Name,
+		ID:        res.Client.ID.String(),
+		Config:    res.Config,
+		SSLink:    res.SSLink,
+		VLESSLink: res.VLESSLink,
 	}
 }
 
@@ -81,6 +106,9 @@ func UserMessage(err error) string {
 		msg := err.Error()
 		if strings.Contains(msg, "sync wireguard") || strings.Contains(msg, "wg syncconf") || strings.Contains(msg, "wg-quick strip") {
 			return "WireGuard sync failed: " + msg
+		}
+		if strings.Contains(msg, "sync vless") || strings.Contains(msg, "start xray") {
+			return "VLESS sync failed: " + msg
 		}
 		if strings.Contains(msg, "interface PrivateKey is missing") || strings.Contains(msg, "stat config") {
 			return "Invalid server WireGuard config: " + msg

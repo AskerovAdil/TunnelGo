@@ -29,7 +29,13 @@
             <td data-label="Created">{{.CreatedAt}}</td>
             <td data-label="Actions">
                 <div class="actions">
-                    <a class="btn secondary" href="/clients/{{.ID}}/config">Download</a>
+                    <a class="btn secondary" href="/clients/{{.ID}}/config">WireGuard</a>
+                    {{if .VLESSLink}}
+                    <a class="btn secondary" href="/clients/{{.ID}}/vless">Hiddify</a>
+                    {{end}}
+                    {{if .SSLink}}
+                    <a class="btn secondary" href="/clients/{{.ID}}/ss">SS</a>
+                    {{end}}
                     <button class="danger"
                             hx-delete="/clients/{{.ID}}"
                             hx-target="#client-list"

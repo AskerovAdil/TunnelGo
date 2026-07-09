@@ -23,8 +23,8 @@ func NewClientRepo(db *sql.DB) *ClientRepo {
 
 func (r *ClientRepo) Create(ctx context.Context, c *client.Client) error {
 	const q = `
-		INSERT INTO clients (id, name, private_key, public_key, address, created_at, revoked_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO clients (id, name, private_key, public_key, address, ss_password, ss_port, vless_uuid, created_at, revoked_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err := r.db.ExecContext(ctx, q,
@@ -33,6 +33,9 @@ func (r *ClientRepo) Create(ctx context.Context, c *client.Client) error {
 		c.PrivateKey,
 		c.PublicKey,
 		c.Address,
+		nullableString(c.SSPassword),
+		nullableInt(c.SSPort),
+		nullableString(c.VLESSUUID),
 		c.CreatedAt.UTC().Format(time.RFC3339Nano),
 		nullableTime(c.RevokedAt),
 	)
@@ -48,7 +51,7 @@ func (r *ClientRepo) Create(ctx context.Context, c *client.Client) error {
 
 func (r *ClientRepo) GetByID(ctx context.Context, id uuid.UUID) (*client.Client, error) {
 	const q = `
-		SELECT id, name, private_key, public_key, address, created_at, revoked_at
+		SELECT id, name, private_key, public_key, address, ss_password, ss_port, vless_uuid, created_at, revoked_at
 		FROM clients
 		WHERE id = ?
 	`
@@ -67,7 +70,7 @@ func (r *ClientRepo) GetByID(ctx context.Context, id uuid.UUID) (*client.Client,
 
 func (r *ClientRepo) GetByPublicKey(ctx context.Context, publicKey string) (*client.Client, error) {
 	const q = `
-		SELECT id, name, private_key, public_key, address, created_at, revoked_at
+		SELECT id, name, private_key, public_key, address, ss_password, ss_port, vless_uuid, created_at, revoked_at
 		FROM clients
 		WHERE public_key = ?
 	`
@@ -86,7 +89,7 @@ func (r *ClientRepo) GetByPublicKey(ctx context.Context, publicKey string) (*cli
 
 func (r *ClientRepo) List(ctx context.Context, includeRevoked bool) ([]*client.Client, error) {
 	q := `
-		SELECT id, name, private_key, public_key, address, created_at, revoked_at
+		SELECT id, name, private_key, public_key, address, ss_password, ss_port, vless_uuid, created_at, revoked_at
 		FROM clients
 	`
 	if !includeRevoked {
@@ -114,6 +117,58 @@ func (r *ClientRepo) List(ctx context.Context, includeRevoked bool) ([]*client.C
 	}
 
 	return clients, nil
+}
+
+func (r *ClientRepo) UpdateShadowsocks(ctx context.Context, id uuid.UUID, password string, port int) error {
+	const q = `
+		UPDATE clients
+		SET ss_password = ?, ss_port = ?
+		WHERE id = ? AND revoked_at IS NULL
+	`
+
+	res, err := r.db.ExecContext(ctx, q, password, port, id.String())
+	if err != nil {
+		if isUniqueViolation(err) {
+			return domain.ErrConflict
+		}
+		return fmt.Errorf("update shadowsocks: %w", err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("update shadowsocks rows affected: %w", err)
+	}
+	if n == 0 {
+		return domain.ErrNotFound
+	}
+
+	return nil
+}
+
+func (r *ClientRepo) UpdateVLESS(ctx context.Context, id uuid.UUID, vlessUUID string) error {
+	const q = `
+		UPDATE clients
+		SET vless_uuid = ?
+		WHERE id = ? AND revoked_at IS NULL
+	`
+
+	res, err := r.db.ExecContext(ctx, q, vlessUUID, id.String())
+	if err != nil {
+		if isUniqueViolation(err) {
+			return domain.ErrConflict
+		}
+		return fmt.Errorf("update vless: %w", err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("update vless rows affected: %w", err)
+	}
+	if n == 0 {
+		return domain.ErrNotFound
+	}
+
+	return nil
 }
 
 func (r *ClientRepo) Revoke(ctx context.Context, id uuid.UUID, revokedAt time.Time) error {
@@ -169,11 +224,14 @@ func scanClient(row rowScanner) (*client.Client, error) {
 		privateKey string
 		publicKey  string
 		address    string
+		ssPassword sql.NullString
+		ssPort     sql.NullInt64
+		vlessUUID  sql.NullString
 		createdAt  string
 		revokedAt  sql.NullString
 	)
 
-	if err := row.Scan(&id, &name, &privateKey, &publicKey, &address, &createdAt, &revokedAt); err != nil {
+	if err := row.Scan(&id, &name, &privateKey, &publicKey, &address, &ssPassword, &ssPort, &vlessUUID, &createdAt, &revokedAt); err != nil {
 		return nil, err
 	}
 
@@ -196,7 +254,7 @@ func scanClient(row rowScanner) (*client.Client, error) {
 		parsedRevokedAt = &t
 	}
 
-	return &client.Client{
+	c := &client.Client{
 		ID:         parsedID,
 		Name:       name,
 		PrivateKey: privateKey,
@@ -204,7 +262,18 @@ func scanClient(row rowScanner) (*client.Client, error) {
 		Address:    address,
 		CreatedAt:  parsedCreatedAt,
 		RevokedAt:  parsedRevokedAt,
-	}, nil
+	}
+	if ssPassword.Valid {
+		c.SSPassword = ssPassword.String
+	}
+	if ssPort.Valid {
+		c.SSPort = int(ssPort.Int64)
+	}
+	if vlessUUID.Valid {
+		c.VLESSUUID = vlessUUID.String
+	}
+
+	return c, nil
 }
 
 func nullableTime(t *time.Time) any {
@@ -212,6 +281,20 @@ func nullableTime(t *time.Time) any {
 		return nil
 	}
 	return t.UTC().Format(time.RFC3339Nano)
+}
+
+func nullableString(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+func nullableInt(n int) any {
+	if n <= 0 {
+		return nil
+	}
+	return n
 }
 
 func isUniqueViolation(err error) bool {
