@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -13,16 +14,17 @@ import (
 const envPrefix = "TUNNELGO_"
 
 type Config struct {
-	Listen         string
-	LogLevel       slog.Level
+	Listen          string
+	LogLevel        slog.Level
 	ShutdownTimeout time.Duration
 
-	DBPath      string
-	WGInterface string
-	WGConfig    string
-	WGEndpoint  string
-	WGDNS       string
+	DBPath       string
+	WGInterface  string
+	WGConfig     string
+	WGEndpoint   string
+	WGDNS        string
 	WGAllowedIPs string
+	WGKeepalive  int
 
 	MasterPassword string
 	SessionSecret  string
@@ -44,6 +46,7 @@ func Load(args []string) (*Config, error) {
 		wgEndpoint  = fs.String("wg-endpoint", envOr("WG_ENDPOINT", ""), "WireGuard server endpoint (host:port)")
 		wgDNS       = fs.String("wg-dns", envOr("WG_DNS", "1.1.1.1"), "DNS servers for client configs")
 		wgAllowed   = fs.String("wg-allowed-ips", envOr("WG_ALLOWED_IPS", "0.0.0.0/0,::/0"), "AllowedIPs for client configs")
+		wgKeepalive = fs.Int("wg-keepalive", intEnvOr("WG_KEEPALIVE", 25), "PersistentKeepalive for client configs")
 		masterPass  = fs.String("master-password", envOr("MASTER_PASSWORD", ""), "master password for web login")
 		sessSecret  = fs.String("session-secret", envOr("SESSION_SECRET", ""), "session signing secret")
 		sessTTL     = fs.Duration("session-ttl", durationEnvOr("SESSION_TTL", 24*time.Hour), "session lifetime")
@@ -73,6 +76,7 @@ func Load(args []string) (*Config, error) {
 		WGEndpoint:      *wgEndpoint,
 		WGDNS:           *wgDNS,
 		WGAllowedIPs:    *wgAllowed,
+		WGKeepalive:     *wgKeepalive,
 		MasterPassword:  *masterPass,
 		SessionSecret:   *sessSecret,
 		SessionTTL:      *sessTTL,
@@ -118,6 +122,18 @@ func durationEnvOr(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return d
+}
+
+func intEnvOr(key string, fallback int) int {
+	v := os.Getenv(envPrefix + key)
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return fallback
+	}
+	return n
 }
 
 func parseLogLevel(s string) (slog.Level, error) {

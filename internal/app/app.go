@@ -10,6 +10,7 @@ import (
 	"github.com/tunnelgo/tunnelgo/internal/domain/client"
 	httpserver "github.com/tunnelgo/tunnelgo/internal/http"
 	"github.com/tunnelgo/tunnelgo/internal/store/sqlite"
+	"github.com/tunnelgo/tunnelgo/internal/wireguard"
 )
 
 type App struct {
@@ -17,6 +18,7 @@ type App struct {
 	logger     *slog.Logger
 	db         *sql.DB
 	clientRepo client.Repository
+	wg         *wireguard.Manager
 	server     *httpserver.Server
 }
 
@@ -24,6 +26,12 @@ func New(cfg *config.Config, logger *slog.Logger) (*App, error) {
 	db, err := sqlite.Open(context.Background(), cfg.DBPath)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
+	}
+
+	wgMgr, err := wireguard.NewManager(cfg)
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("init wireguard: %w", err)
 	}
 
 	clientRepo := sqlite.NewClientRepo(db)
@@ -34,6 +42,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*App, error) {
 		},
 	})
 	if err != nil {
+		_ = wgMgr.Close()
 		_ = db.Close()
 		return nil, fmt.Errorf("create http server: %w", err)
 	}
@@ -43,17 +52,22 @@ func New(cfg *config.Config, logger *slog.Logger) (*App, error) {
 		logger:     logger,
 		db:         db,
 		clientRepo: clientRepo,
+		wg:         wgMgr,
 		server:     server,
 	}, nil
 }
 
 func (a *App) Run(ctx context.Context) error {
-	defer func() { _ = a.db.Close() }()
+	defer func() {
+		_ = a.wg.Close()
+		_ = a.db.Close()
+	}()
 
 	a.logger.Info("starting tunnelgo",
 		"listen", a.cfg.Listen,
 		"db_path", a.cfg.DBPath,
 		"wg_interface", a.cfg.WGInterface,
+		"wg_config", a.cfg.WGConfig,
 	)
 
 	errCh := make(chan error, 1)
