@@ -48,9 +48,11 @@ func New(cfg *config.Config, logger *slog.Logger) (*App, error) {
 	clientRepo := sqlite.NewClientRepo(db)
 	clientSvc := service.NewClientService(clientRepo, wgMgr)
 	authHandler := handler.NewAuth(authenticator)
+	clientHandler := handler.NewClient(clientSvc)
 
 	server, err := httpserver.New(cfg, logger, httpserver.Deps{
 		Auth:          authHandler,
+		Client:        clientHandler,
 		Authenticator: authenticator,
 		ReadinessChecks: []func(context.Context) error{
 			func(ctx context.Context) error { return db.PingContext(ctx) },

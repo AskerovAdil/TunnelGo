@@ -1,0 +1,47 @@
+{{define "partials/client_list.html"}}
+{{if not .Clients}}
+<p class="muted">No clients yet. Create one above.</p>
+{{else}}
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Status</th>
+            <th>Address</th>
+            <th>Traffic</th>
+            <th>Created</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .Clients}}
+        <tr>
+            <td data-label="Name"><strong>{{.Name}}</strong></td>
+            <td data-label="Status">
+                <span class="badge {{.StatusClass}}">{{.StatusLabel}}</span>
+                <div class="muted">HS: {{.LastHandshake}}</div>
+            </td>
+            <td data-label="Address"><code>{{.Address}}</code></td>
+            <td data-label="Traffic">
+                <div class="muted">↓ {{.ReceiveBytes}}</div>
+                <div class="muted">↑ {{.TransmitBytes}}</div>
+            </td>
+            <td data-label="Created">{{.CreatedAt}}</td>
+            <td data-label="Actions">
+                <div class="actions">
+                    <a class="btn secondary" href="/clients/{{.ID}}/config">Download</a>
+                    <button class="danger"
+                            hx-delete="/clients/{{.ID}}"
+                            hx-target="#client-list"
+                            hx-swap="innerHTML"
+                            hx-confirm="Revoke client {{.Name}}?">
+                        Revoke
+                    </button>
+                </div>
+            </td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+{{end}}
+{{end}}

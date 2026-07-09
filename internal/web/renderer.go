@@ -8,7 +8,7 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-//go:embed templates/*.html
+//go:embed templates/*.html templates/partials/*.html
 var templatesFS embed.FS
 
 type Renderer struct {
@@ -16,7 +16,12 @@ type Renderer struct {
 }
 
 func NewRenderer() (*Renderer, error) {
-	tpl, err := template.ParseFS(templatesFS, "templates/*.html")
+	funcMap := template.FuncMap{
+		"formatBytes":    FormatBytes,
+		"formatTime":     FormatTime,
+		"formatRelative": FormatRelative,
+	}
+	tpl, err := template.New("").Funcs(funcMap).ParseFS(templatesFS, "templates/*.html", "templates/partials/*.html")
 	if err != nil {
 		return nil, err
 	}

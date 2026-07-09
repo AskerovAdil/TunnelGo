@@ -19,6 +19,7 @@ import (
 
 type Deps struct {
 	Auth            *handler.Auth
+	Client          *handler.Client
 	Authenticator   *auth.Authenticator
 	ReadinessChecks []func(ctx context.Context) error
 }
@@ -28,6 +29,7 @@ type Server struct {
 	cfg             *config.Config
 	logger          *slog.Logger
 	auth            *handler.Auth
+	client          *handler.Client
 	authenticator   *auth.Authenticator
 	readinessChecks []func(ctx context.Context) error
 }
@@ -50,6 +52,10 @@ func New(cfg *config.Config, logger *slog.Logger, deps Deps) (*Server, error) {
 				_ = c.NoContent(code)
 				return
 			}
+			if c.Request().Header.Get("HX-Request") == "true" {
+				_ = c.String(code, msg)
+				return
+			}
 			_ = c.JSON(code, map[string]string{"error": msg})
 		}
 	}
@@ -65,6 +71,7 @@ func New(cfg *config.Config, logger *slog.Logger, deps Deps) (*Server, error) {
 		cfg:             cfg,
 		logger:          logger,
 		auth:            deps.Auth,
+		client:          deps.Client,
 		authenticator:   deps.Authenticator,
 		readinessChecks: deps.ReadinessChecks,
 	}
@@ -120,8 +127,12 @@ func (s *Server) registerRoutes() {
 	s.echo.POST("/login", s.auth.Login)
 
 	protected := s.echo.Group("", authmw.RequireAuth(s.authenticator))
-	protected.GET("/", s.auth.Home)
+	protected.GET("/", s.client.Dashboard)
 	protected.POST("/logout", s.auth.Logout)
+	protected.GET("/partials/clients", s.client.ClientListPartial)
+	protected.POST("/clients", s.client.Create)
+	protected.DELETE("/clients/:id", s.client.Revoke)
+	protected.GET("/clients/:id/config", s.client.DownloadConfig)
 }
 
 func (s *Server) handleHealthz(c echo.Context) error {

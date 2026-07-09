@@ -1,0 +1,16 @@
+{{define "partials/create_result.html"}}
+{{if .Error}}
+<div class="error">{{.Error}}</div>
+{{else}}
+<div class="success">Client <strong>{{.Name}}</strong> created.</div>
+<textarea readonly>{{.Config}}</textarea>
+<div class="actions">
+    <a class="btn" href="/clients/{{.ID}}/config">Download .conf</a>
+</div>
+{{end}}
+{{if .Clients}}
+<div id="client-list" hx-swap-oob="innerHTML">
+{{template "partials/client_list.html" .}}
+</div>
+{{end}}
+{{end}}

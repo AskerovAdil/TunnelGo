@@ -55,10 +55,6 @@ func (h *Auth) Logout(c echo.Context) error {
 	return c.Redirect(http.StatusSeeOther, "/login")
 }
 
-func (h *Auth) Home(c echo.Context) error {
-	return c.Render(http.StatusOK, "home.html", nil)
-}
-
 func (h *Auth) isAuthenticated(c echo.Context) bool {
 	cookie, err := c.Cookie(h.auth.CookieName())
 	if err != nil {
