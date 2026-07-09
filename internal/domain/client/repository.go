@@ -13,4 +13,5 @@ type Repository interface {
 	GetByPublicKey(ctx context.Context, publicKey string) (*Client, error)
 	List(ctx context.Context, includeRevoked bool) ([]*Client, error)
 	Revoke(ctx context.Context, id uuid.UUID, revokedAt time.Time) error
+	Delete(ctx context.Context, id uuid.UUID) error
 }

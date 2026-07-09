@@ -139,6 +139,25 @@ func (r *ClientRepo) Revoke(ctx context.Context, id uuid.UUID, revokedAt time.Ti
 	return nil
 }
 
+func (r *ClientRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	const q = `DELETE FROM clients WHERE id = ?`
+
+	res, err := r.db.ExecContext(ctx, q, id.String())
+	if err != nil {
+		return fmt.Errorf("delete client: %w", err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete rows affected: %w", err)
+	}
+	if n == 0 {
+		return domain.ErrNotFound
+	}
+
+	return nil
+}
+
 type rowScanner interface {
 	Scan(dest ...any) error
 }

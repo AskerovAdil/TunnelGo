@@ -10,10 +10,16 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 
+	"github.com/tunnelgo/tunnelgo/internal/auth"
 	"github.com/tunnelgo/tunnelgo/internal/config"
+	"github.com/tunnelgo/tunnelgo/internal/http/handler"
+	authmw "github.com/tunnelgo/tunnelgo/internal/http/middleware"
+	"github.com/tunnelgo/tunnelgo/internal/web"
 )
 
 type Deps struct {
+	Auth            *handler.Auth
+	Authenticator   *auth.Authenticator
 	ReadinessChecks []func(ctx context.Context) error
 }
 
@@ -21,6 +27,8 @@ type Server struct {
 	echo            *echo.Echo
 	cfg             *config.Config
 	logger          *slog.Logger
+	auth            *handler.Auth
+	authenticator   *auth.Authenticator
 	readinessChecks []func(ctx context.Context) error
 }
 
@@ -46,10 +54,18 @@ func New(cfg *config.Config, logger *slog.Logger, deps Deps) (*Server, error) {
 		}
 	}
 
+	renderer, err := web.NewRenderer()
+	if err != nil {
+		return nil, fmt.Errorf("create renderer: %w", err)
+	}
+	e.Renderer = renderer
+
 	s := &Server{
 		echo:            e,
 		cfg:             cfg,
 		logger:          logger,
+		auth:            deps.Auth,
+		authenticator:   deps.Authenticator,
 		readinessChecks: deps.ReadinessChecks,
 	}
 	s.registerMiddleware()
@@ -99,6 +115,13 @@ func (s *Server) requestLogger() echo.MiddlewareFunc {
 
 func (s *Server) registerRoutes() {
 	s.echo.GET("/healthz", s.handleHealthz)
+
+	s.echo.GET("/login", s.auth.LoginPage)
+	s.echo.POST("/login", s.auth.Login)
+
+	protected := s.echo.Group("", authmw.RequireAuth(s.authenticator))
+	protected.GET("/", s.auth.Home)
+	protected.POST("/logout", s.auth.Logout)
 }
 
 func (s *Server) handleHealthz(c echo.Context) error {

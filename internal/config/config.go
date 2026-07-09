@@ -29,6 +29,7 @@ type Config struct {
 	MasterPassword string
 	SessionSecret  string
 	SessionTTL     time.Duration
+	SecureCookies  bool
 }
 
 func Load(args []string) (*Config, error) {
@@ -36,20 +37,21 @@ func Load(args []string) (*Config, error) {
 	fs.SetOutput(os.Stderr)
 
 	var (
-		showVersion = fs.Bool("version", false, "print version and exit")
-		listen      = fs.String("listen", envOr("LISTEN", ":8080"), "HTTP listen address")
-		logLevel    = fs.String("log-level", envOr("LOG_LEVEL", "info"), "log level: debug, info, warn, error")
-		shutdownTO  = fs.Duration("shutdown-timeout", durationEnvOr("SHUTDOWN_TIMEOUT", 10*time.Second), "graceful shutdown timeout")
-		dbPath      = fs.String("db-path", envOr("DB_PATH", "./data/tunnelgo.db"), "SQLite database path")
-		wgIface     = fs.String("wg-interface", envOr("WG_INTERFACE", "wg0"), "WireGuard interface name")
-		wgConfig    = fs.String("wg-config", envOr("WG_CONFIG", "/etc/wireguard/wg0.conf"), "WireGuard config file path")
-		wgEndpoint  = fs.String("wg-endpoint", envOr("WG_ENDPOINT", ""), "WireGuard server endpoint (host:port)")
-		wgDNS       = fs.String("wg-dns", envOr("WG_DNS", "1.1.1.1"), "DNS servers for client configs")
-		wgAllowed   = fs.String("wg-allowed-ips", envOr("WG_ALLOWED_IPS", "0.0.0.0/0,::/0"), "AllowedIPs for client configs")
-		wgKeepalive = fs.Int("wg-keepalive", intEnvOr("WG_KEEPALIVE", 25), "PersistentKeepalive for client configs")
-		masterPass  = fs.String("master-password", envOr("MASTER_PASSWORD", ""), "master password for web login")
-		sessSecret  = fs.String("session-secret", envOr("SESSION_SECRET", ""), "session signing secret")
-		sessTTL     = fs.Duration("session-ttl", durationEnvOr("SESSION_TTL", 24*time.Hour), "session lifetime")
+		showVersion   = fs.Bool("version", false, "print version and exit")
+		listen        = fs.String("listen", envOr("LISTEN", ":8080"), "HTTP listen address")
+		logLevel      = fs.String("log-level", envOr("LOG_LEVEL", "info"), "log level: debug, info, warn, error")
+		shutdownTO    = fs.Duration("shutdown-timeout", durationEnvOr("SHUTDOWN_TIMEOUT", 10*time.Second), "graceful shutdown timeout")
+		dbPath        = fs.String("db-path", envOr("DB_PATH", "./data/tunnelgo.db"), "SQLite database path")
+		wgIface       = fs.String("wg-interface", envOr("WG_INTERFACE", "wg0"), "WireGuard interface name")
+		wgConfig      = fs.String("wg-config", envOr("WG_CONFIG", "/etc/wireguard/wg0.conf"), "WireGuard config file path")
+		wgEndpoint    = fs.String("wg-endpoint", envOr("WG_ENDPOINT", ""), "WireGuard server endpoint (host:port)")
+		wgDNS         = fs.String("wg-dns", envOr("WG_DNS", "1.1.1.1"), "DNS servers for client configs")
+		wgAllowed     = fs.String("wg-allowed-ips", envOr("WG_ALLOWED_IPS", "0.0.0.0/0,::/0"), "AllowedIPs for client configs")
+		wgKeepalive   = fs.Int("wg-keepalive", intEnvOr("WG_KEEPALIVE", 25), "PersistentKeepalive for client configs")
+		masterPass    = fs.String("master-password", envOr("MASTER_PASSWORD", ""), "master password for web login")
+		sessSecret    = fs.String("session-secret", envOr("SESSION_SECRET", ""), "session signing secret")
+		sessTTL       = fs.Duration("session-ttl", durationEnvOr("SESSION_TTL", 24*time.Hour), "session lifetime")
+		secureCookies = fs.Bool("secure-cookies", boolEnvOr("SECURE_COOKIES", false), "set Secure flag on session cookies")
 	)
 
 	if err := fs.Parse(args); err != nil {
@@ -80,6 +82,7 @@ func Load(args []string) (*Config, error) {
 		MasterPassword:  *masterPass,
 		SessionSecret:   *sessSecret,
 		SessionTTL:      *sessTTL,
+		SecureCookies:   *secureCookies,
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -101,6 +104,12 @@ func (c *Config) validate() error {
 	}
 	if c.WGConfig == "" {
 		return errors.New("wg-config must not be empty")
+	}
+	if c.MasterPassword == "" {
+		return errors.New("master-password is required")
+	}
+	if len(c.SessionSecret) < 32 {
+		return errors.New("session-secret must be at least 32 characters")
 	}
 	return nil
 }
@@ -134,6 +143,21 @@ func intEnvOr(key string, fallback int) int {
 		return fallback
 	}
 	return n
+}
+
+func boolEnvOr(key string, fallback bool) bool {
+	v := os.Getenv(envPrefix + key)
+	if v == "" {
+		return fallback
+	}
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }
 
 func parseLogLevel(s string) (slog.Level, error) {

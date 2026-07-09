@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/tunnelgo/tunnelgo/internal/auth"
 	"github.com/tunnelgo/tunnelgo/internal/config"
 	"github.com/tunnelgo/tunnelgo/internal/domain/client"
 	httpserver "github.com/tunnelgo/tunnelgo/internal/http"
+	"github.com/tunnelgo/tunnelgo/internal/http/handler"
+	"github.com/tunnelgo/tunnelgo/internal/service"
 	"github.com/tunnelgo/tunnelgo/internal/store/sqlite"
 	"github.com/tunnelgo/tunnelgo/internal/wireguard"
 )
@@ -18,6 +21,7 @@ type App struct {
 	logger     *slog.Logger
 	db         *sql.DB
 	clientRepo client.Repository
+	clientSvc  *service.ClientService
 	wg         *wireguard.Manager
 	server     *httpserver.Server
 }
@@ -34,9 +38,20 @@ func New(cfg *config.Config, logger *slog.Logger) (*App, error) {
 		return nil, fmt.Errorf("init wireguard: %w", err)
 	}
 
+	authenticator, err := auth.New(cfg.MasterPassword, cfg.SessionSecret, cfg.SessionTTL, cfg.SecureCookies)
+	if err != nil {
+		_ = wgMgr.Close()
+		_ = db.Close()
+		return nil, fmt.Errorf("init auth: %w", err)
+	}
+
 	clientRepo := sqlite.NewClientRepo(db)
+	clientSvc := service.NewClientService(clientRepo, wgMgr)
+	authHandler := handler.NewAuth(authenticator)
 
 	server, err := httpserver.New(cfg, logger, httpserver.Deps{
+		Auth:          authHandler,
+		Authenticator: authenticator,
 		ReadinessChecks: []func(context.Context) error{
 			func(ctx context.Context) error { return db.PingContext(ctx) },
 		},
@@ -52,6 +67,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*App, error) {
 		logger:     logger,
 		db:         db,
 		clientRepo: clientRepo,
+		clientSvc:  clientSvc,
 		wg:         wgMgr,
 		server:     server,
 	}, nil
