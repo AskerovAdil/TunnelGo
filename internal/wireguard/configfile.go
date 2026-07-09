@@ -118,7 +118,12 @@ func WriteConfig(path string, cfg *Config) error {
 		writeExtra(&b, peer.Extra)
 	}
 
-	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
+	perm := os.FileMode(0o660)
+	if st, err := os.Stat(path); err == nil {
+		perm = st.Mode().Perm()
+	}
+
+	if err := os.WriteFile(path, []byte(b.String()), perm); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
 	return nil

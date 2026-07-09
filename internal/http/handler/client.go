@@ -2,6 +2,7 @@ package handler
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -18,6 +19,11 @@ type Client struct {
 
 func NewClient(svc *service.ClientService) *Client {
 	return &Client{svc: svc}
+}
+
+type createResponse struct {
+	Result web.CreateResultData
+	List   web.DashboardData
 }
 
 func (h *Client) Dashboard(c echo.Context) error {
@@ -43,30 +49,29 @@ func (h *Client) ClientListPartial(c echo.Context) error {
 func (h *Client) Create(c echo.Context) error {
 	name := strings.TrimSpace(c.FormValue("name"))
 	result, err := h.svc.Create(c.Request().Context(), name)
-
-	data := web.CreateResultFromService(result, err)
 	if err != nil {
-		if c.Request().Header.Get("HX-Request") == "true" {
-			return c.Render(http.StatusBadRequest, "partials/create_result.html", data)
-		}
-		return mapServiceError(err)
-	}
-
-	views, listErr := h.svc.List(c.Request().Context())
-	if listErr != nil {
-		return mapServiceError(listErr)
-	}
-
-	resp := struct {
-		web.CreateResultData
-		Clients []web.ClientRow
-	}{
-		CreateResultData: data,
-		Clients:          web.ClientRowsFromViews(views),
+		slog.Warn("create client failed", "name", name, "error", err)
 	}
 
 	if c.Request().Header.Get("HX-Request") == "true" {
+		resp := createResponse{
+			Result: web.CreateResultFromService(result, err),
+		}
+		if err == nil {
+			views, listErr := h.svc.List(c.Request().Context())
+			if listErr != nil {
+				resp.Result = web.CreateResultData{
+					Error: "Client created, but failed to refresh list. Reload the page.",
+				}
+			} else {
+				resp.List = web.DashboardData{Clients: web.ClientRowsFromViews(views)}
+			}
+		}
 		return c.Render(http.StatusOK, "partials/create_result.html", resp)
+	}
+
+	if err != nil {
+		return mapServiceError(err)
 	}
 	return c.Redirect(http.StatusSeeOther, "/")
 }
@@ -77,6 +82,9 @@ func (h *Client) Revoke(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid client id")
 	}
 	if err := h.svc.Revoke(c.Request().Context(), id); err != nil {
+		if c.Request().Header.Get("HX-Request") == "true" {
+			return c.String(http.StatusOK, fmt.Sprintf(`<div class="error">%s</div>`, web.UserMessage(err)))
+		}
 		return mapServiceError(err)
 	}
 

@@ -71,7 +71,7 @@ func (m *Manager) ApplyPeers(ctx context.Context, peers []PeerConfig) error {
 	if err := WriteConfig(m.configPath, cfg); err != nil {
 		return err
 	}
-	return syncConfig(ctx, m.iface, m.configPath)
+	return applyPeers(ctx, m.client, m.iface, peers)
 }
 
 func (m *Manager) DeviceStatus(ctx context.Context) (*DeviceStatus, error) {

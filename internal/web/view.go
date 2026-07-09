@@ -2,6 +2,7 @@ package web
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/tunnelgo/tunnelgo/internal/domain"
 	"github.com/tunnelgo/tunnelgo/internal/service"
@@ -77,6 +78,13 @@ func UserMessage(err error) string {
 	case errors.Is(err, domain.ErrConflict):
 		return "Client name already exists or the address pool is full."
 	default:
-		return "Failed to create client. Check server logs."
+		msg := err.Error()
+		if strings.Contains(msg, "sync wireguard") || strings.Contains(msg, "wg syncconf") || strings.Contains(msg, "wg-quick strip") {
+			return "WireGuard sync failed: " + msg
+		}
+		if strings.Contains(msg, "interface PrivateKey is missing") || strings.Contains(msg, "stat config") {
+			return "Invalid server WireGuard config: " + msg
+		}
+		return msg
 	}
 }

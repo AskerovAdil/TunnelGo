@@ -139,8 +139,9 @@
             <form class="row"
                   hx-post="/clients"
                   hx-target="#create-result"
-                  hx-swap="innerHTML">
-                <input type="text" name="name" placeholder="client-name" pattern="[a-zA-Z0-9_-]+" maxlength="64" required>
+                  hx-swap="innerHTML"
+                  hx-disabled-elt="button">
+                <input type="text" name="name" placeholder="client-name" pattern="[-a-zA-Z0-9_]+" maxlength="64" required title="Letters, digits, _ and - only">
                 <button type="submit">Create</button>
             </form>
             <div id="create-result" style="margin-top:1rem"></div>

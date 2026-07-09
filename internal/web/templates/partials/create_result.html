@@ -1,16 +1,16 @@
 {{define "partials/create_result.html"}}
-{{if .Error}}
-<div class="error">{{.Error}}</div>
+{{if .Result.Error}}
+<div class="error">{{.Result.Error}}</div>
 {{else}}
-<div class="success">Client <strong>{{.Name}}</strong> created.</div>
-<textarea readonly>{{.Config}}</textarea>
+<div class="success">Client <strong>{{.Result.Name}}</strong> created.</div>
+<textarea readonly>{{.Result.Config}}</textarea>
 <div class="actions">
-    <a class="btn" href="/clients/{{.ID}}/config">Download .conf</a>
+    <a class="btn" href="/clients/{{.Result.ID}}/config">Download .conf</a>
 </div>
 {{end}}
-{{if .Clients}}
+{{if .List.Clients}}
 <div id="client-list" hx-swap-oob="innerHTML">
-{{template "partials/client_list.html" .}}
+{{template "partials/client_list.html" .List}}
 </div>
 {{end}}
 {{end}}
