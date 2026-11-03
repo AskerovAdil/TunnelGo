@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
-# TunnelGo one-shot installer (see DEPLOY.md). Usage: curl -fsSL https://raw.githubusercontent.com/AskerovAdil/TunnelGo/main/install.sh -o /root/i.sh && bash /root/i.sh
+# TunnelGo one-shot installer (see DEPLOY.md).
+# Usage: bash install.sh [panel_port] [master_password_hex]
+#   e.g. bash install.sh 80 $(printf 'MyPass' | xxd -p)
 set -ex
+PORT=${1:-8080}
+NEWPW=
+if [ -n "${2:-}" ]; then NEWPW=$(printf "$(echo "$2" | sed 's/../\\x&/g')"); fi
 export DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a
 IP=${IP:-$(ip -4 route get 1.1.1.1 | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')}
 IFACE=$(ip -br route show default | awk '{print $5; exit}')
@@ -23,7 +28,7 @@ umask 022
 systemctl enable --now wg-quick@wg0
 ufw allow OpenSSH
 ufw allow 51820/udp
-ufw allow 8080/tcp
+ufw allow $PORT/tcp
 ufw allow 8388:8487/tcp
 ufw allow 8443/tcp
 ufw --force enable
@@ -51,7 +56,7 @@ if [ ! -f /etc/tunnelgo/env ]; then
 PW=$(openssl rand -base64 18 | tr -d '/+=')
 SS=$(openssl rand -hex 32)
 cat > /etc/tunnelgo/env <<E
-TUNNELGO_LISTEN=:8080
+TUNNELGO_LISTEN=:$PORT
 TUNNELGO_LOG_LEVEL=info
 TUNNELGO_SHUTDOWN_TIMEOUT=10s
 TUNNELGO_MASTER_PASSWORD=$PW
@@ -80,6 +85,8 @@ TUNNELGO_VLESS_DEST=www.cloudflare.com:443
 TUNNELGO_VLESS_SERVER_NAMES=www.cloudflare.com
 E
 fi
+sed -i "s|^TUNNELGO_LISTEN=.*|TUNNELGO_LISTEN=:$PORT|" /etc/tunnelgo/env
+if [ -n "$NEWPW" ]; then set +x; sed -i "s|^TUNNELGO_MASTER_PASSWORD=.*|TUNNELGO_MASTER_PASSWORD=$NEWPW|" /etc/tunnelgo/env; set -x; fi
 chown root:tunnelgo /etc/tunnelgo/env
 chmod 640 /etc/tunnelgo/env
 cat > /etc/systemd/system/tunnelgo.service <<'U'
@@ -96,8 +103,8 @@ Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=/usr/local/bin/tunnelgo
 Restart=on-failure
 RestartSec=3
-AmbientCapabilities=CAP_NET_ADMIN
-CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
 StandardOutput=journal
 StandardError=journal
@@ -109,9 +116,9 @@ systemctl enable --now tunnelgo
 systemctl restart tunnelgo
 sleep 4
 set +x
-echo; echo "===== HEALTHZ ====="; curl -sS http://127.0.0.1:8080/healthz; echo
+echo; echo "===== HEALTHZ ====="; curl -sS http://127.0.0.1:$PORT/healthz; echo
 wg show wg0 | head -3
-ss -tlnp | grep -E '8080|8443|8388' || true
+ss -tlnp | grep -E ":$PORT |8443|8388" || true
 echo "===== DONE ====="
-echo "Panel: http://$IP:8080/login"
+echo "Panel: http://$IP:$PORT/login"
 grep MASTER_PASSWORD /etc/tunnelgo/env
